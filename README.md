@@ -71,8 +71,7 @@ fn test_transpose() {
 fn test_mul() {
     let matrix1 = Matrix::new_quantized([999900, 1000200, 1000300, 1000400, 1000500, 999400], [2, 3], 1000000, 100);    // -quantize-> [-1, 2, 3, 4, 5, -6]
     let matrix2 = Matrix::new_quantized([1000700, 1000800, 1000900, 1001000, 1001100, 998800], [3, 2], 1000000, 100);    // -quantize-> [7, 8, 9, 10, 11, -12]
-    let mut result = Matrix::new_quantized([0; 4], [2, 2], 1000000, 100);
-    result = matrix1.mul(matrix2, result);  
+    let mut result = matrix1.mul(matrix2);  
     result.print();     // ["0x0f5370","0x0f38e0","0x0f44fc","0x0f7e68"] -quantize-> [44, -24, 7, 154]
     assert(result.values==[1004400, 997600, 1000700, 1015400]);
 }

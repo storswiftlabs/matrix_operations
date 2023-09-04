@@ -71,9 +71,10 @@ impl<N> Matrix<N> {
         }
     }
 
-    fn mul<M>(self, matrix: Self, mut result: Matrix<M>) -> Matrix<M>{
+    fn mul<M>(self, matrix: Self) -> Matrix<M>{
+        let mut result =  Matrix {values: [0; M], shape: [self.shape[0], matrix.shape[1]], zero_point: self.zero_point, scale: self.scale};
         if (self.zero_point==0) & (self.scale==1) & (matrix.zero_point==0) & (matrix.scale==1) {
-            result.values = mul(self.values, matrix.values, self.shape, matrix.shape, result.values);
+            result.values = mul(self.values, matrix.values, self.shape, matrix.shape);
             result
         }
         else {
@@ -92,6 +93,7 @@ impl<N> Matrix<N> {
     }
 
     fn scalar_mul(self, scalar: Field) -> Self {
+        // scalar: scalar is a quantized value. zero_point and scale the default value is the same as the matrix
         if (self.zero_point==0) & (self.scale==1) {
             let values = scalar_mul(self.values, scalar);
             Self {values, shape: self.shape, zero_point: self.zero_point, scale: self.scale}
@@ -106,6 +108,7 @@ impl<N> Matrix<N> {
     }
 
     fn scalar_div(self, scalar: Field) -> Self {
+        // scalar: scalar is a quantized value. zero_point and scale the default value is the same as the matrix
         if (self.zero_point==0) & (self.scale==1) {
             let values = scalar_div(self.values, scalar);
             Self {values, shape: self.shape, zero_point: self.zero_point, scale: self.scale}
@@ -124,27 +127,46 @@ impl<N> Matrix<N> {
         Self {values, shape: [self.shape[1], self.shape[0]], zero_point: self.zero_point, scale: self.scale}
     }
 
-    fn determinant(self) -> Field{
-        if (self.zero_point==0) & (self.scale==1) {
+    fn determinant(self) -> Field {
+        // Check if the matrix has no scaling or zero-point adjustments
+        if (self.zero_point == 0) & (self.scale == 1) {
             let det = determinant(self.values, self.shape);
             det
-        }
-        else {
+        } else {
+            // Assert that the matrix is square
             assert(self.shape[0] == self.shape[1]);
-            if self.shape[0] == 2{
-                quantize::sub(quantize::mul(self.values[0], self.zero_point, self.scale, self.values[3], self.zero_point, self.scale, self.zero_point, self.scale), self.zero_point, self.scale, quantize::mul(self.values[1], self.zero_point, self.scale, self.values[2], self.zero_point, self.scale, self.zero_point, self.scale), self.zero_point, self.scale, self.zero_point, self.scale)
-            }
-            else if self.values[0] == 1{
+            
+            // Check if the matrix is 2x2
+            if self.shape[0] == 2 {
+                // Calculate the determinant for a 2x2 matrix with quantized operations
+                quantize::sub(
+                    quantize::mul(self.values[0], self.zero_point, self.scale, self.values[3], self.zero_point, self.scale, self.zero_point, self.scale),
+                    self.zero_point, self.scale,
+                    quantize::mul(self.values[1], self.zero_point, self.scale, self.values[2], self.zero_point, self.scale, self.zero_point, self.scale),
+                    self.zero_point, self.scale, self.zero_point, self.scale
+                )
+            } else if self.values[0] == 1 {
+                // Return 1 if the matrix is identity-like
                 self.values[0]
-            }
-            else {
+            } else {
                 let mut det = self.zero_point;
                 let mut sign = 1;
-                for i in 0..self.shape[0]{
+                
+                // Loop through rows/columns to calculate the determinant recursively
+                for i in 0..self.shape[0] {
                     let mut minor = [0; N];
                     minor = get_minor(self.values, 0, i, self.shape, minor);
                     let matrix = Self {values: minor, shape: [self.shape[0] - 1, self.shape[1] - 1], zero_point: self.zero_point, scale: self.scale};
-                    det = quantize::add(det, self.zero_point, self.scale, quantize::mul(quantize::mul(sign, 0, 1, self.values[i], self.zero_point, self.scale, self.zero_point, self.scale), self.zero_point,self.scale, matrix.determinant(), self.zero_point,self.scale, self.zero_point, self.scale), self.zero_point, self.scale, self.zero_point, self.scale);
+                    det = quantize::add(
+                        det, self.zero_point, self.scale,
+                        quantize::mul(
+                            quantize::mul(sign, 0, 1, self.values[i], self.zero_point, self.scale, self.zero_point, self.scale),
+                            self.zero_point, self.scale,
+                            matrix.determinant(),
+                            self.zero_point, self.scale, self.zero_point, self.scale
+                        ),
+                        self.zero_point, self.scale, self.zero_point, self.scale
+                    );
                     sign *= -1;
                 }
                 det
@@ -152,25 +174,26 @@ impl<N> Matrix<N> {
         }
     }
 
-    fn adjoint(self) -> Self{
-        if (self.zero_point==0) & (self.scale==1) {
+    fn adjoint(self) -> Self {
+        if (self.zero_point == 0) & (self.scale == 1) {
             let values = adjoint(self.values, self.shape);
             Self {values, shape: self.shape, zero_point: self.zero_point, scale: self.scale}
-        }
-        else {
+        } else {
             assert(self.shape[0] == self.shape[1]);
             let mut values = [0; N];
-            for i in 0..self.shape[0]{
-                for j in 0..self.shape[1]{
+            
+            // Loop through rows and columns to calculate the adjoint matrix
+            for i in 0..self.shape[0] {
+                for j in 0..self.shape[1] {
                     let mut minor = [0; N];
                     minor = get_minor(self.values, i, j, self.shape, minor);
                     let matrix = Self {values: minor, shape: [self.shape[0] - 1, self.shape[1] - 1], zero_point: self.zero_point, scale: self.scale};
                     let mut sign = 1;
-                    for _ in 0..i+j {
+                    for _ in 0..i + j {
                         sign *= -1;
                     }
-                    let mut cofactor = quantize::mul(sign, 0, 1, matrix.determinant(), self.zero_point,self.scale, self.zero_point,self.scale);
-                    values[i*self.shape[1]+j] = cofactor;
+                    let mut cofactor = quantize::mul(sign, 0, 1, matrix.determinant(), self.zero_point, self.scale, self.zero_point, self.scale);
+                    values[i * self.shape[1] + j] = cofactor;
                 }
             }
             values = transpose(values, self.shape);
@@ -178,25 +201,27 @@ impl<N> Matrix<N> {
         }
     }
 
-    fn inverse(self) -> Self{
-        if (self.zero_point==0) & (self.scale==1) {
+    fn inverse(self) -> Self {
+        if (self.zero_point == 0) & (self.scale == 1) {
             let values = inverse(self.values, self.shape);
             Self {values, shape: self.shape, zero_point: self.zero_point, scale: self.scale}
-        }
-        else {
+        } else {
             assert(self.shape[0] == self.shape[1]);
             let det = self.determinant();
             assert(det != 0);
             let adjoint = self.adjoint();
             let mut values = [0; N];
-            for i in 0..self.shape[0]{
-                for j in 0..self.shape[1]{
-                    values[i * self.shape[1] + j] = quantize::div(adjoint.values[i * self.shape[1] + j], self.zero_point,self.scale, det, self.zero_point,self.scale, self.zero_point,self.scale);
+            
+            // Loop through rows and columns to calculate the inverse matrix
+            for i in 0..self.shape[0] {
+                for j in 0..self.shape[1] {
+                    values[i * self.shape[1] + j] = quantize::div(adjoint.values[i * self.shape[1] + j], self.zero_point, self.scale, det, self.zero_point, self.scale, self.zero_point, self.scale);
                 }
             }
             Self {values, shape: self.shape, zero_point: self.zero_point, scale: self.scale}
         }
     }
+
 
     fn print(self) {
         dep::std::println(self.values);
@@ -227,19 +252,32 @@ fn hadamard_product<M>(matrix1: [Field; M], matrix2: [Field; M]) -> [Field; M]{
     result
 }
 
-fn mul<M, N>(matrix1: [Field; M], matrix2: [Field; M], matrix1_shape: [comptime Field; 2], matrix2_shape: [comptime Field; 2], mut result: [Field; N]) -> [Field; N]{
-    assert(matrix1_shape[1]==matrix2_shape[0]);
-    for i in 0..matrix1_shape[0]{
-        for j in 0..matrix2_shape[1]{
+fn mul<M, N>(matrix1: [Field; M], matrix2: [Field; M], matrix1_shape: [comptime Field; 2], matrix2_shape: [comptime Field; 2]) -> [Field; N]{
+    // Ensure that the number of columns in the first matrix matches the number of rows in the second matrix
+    assert(matrix1_shape[1] == matrix2_shape[0]);
+    assert(N == matrix1_shape[0]*matrix2_shape[1]);
+    let mut result = [0; N];
+    
+    // Iterate over rows in the first matrix
+    for i in 0..matrix1_shape[0] {
+        // Iterate over columns in the second matrix
+        for j in 0..matrix2_shape[1] {
             let mut element = 0;
-            for k in 0..matrix1_shape[1]{
+            
+            // Perform dot product of row from first matrix and column from second matrix
+            for k in 0..matrix1_shape[1] {
                 element += matrix1[i * matrix1_shape[1] + k] * matrix2[k * matrix2_shape[1] + j];
             }
-            result[i*matrix2_shape[1]+j] = element;
+            
+            // Store the resulting element in the appropriate position in the result matrix
+            result[i * matrix2_shape[1] + j] = element;
         }
     }
+    
+    // Return the resulting matrix
     result
 }
+
 
 fn scalar_mul<M>(matrix: [Field; M], scalar: Field) -> [Field; M]{
     // scalar: scalar is a quantized value. zero_point and scale the default value is the same as the matrix
@@ -342,10 +380,11 @@ fn inverse<M>(matrix: [Field; M], shape: [comptime Field; 2]) -> [Field; M]{
 }
 
 fn main() {
-    let matrix1 = Matrix::new_quantized([16, 16, 19, 22, 25, 28, 31, 34, 37], [3, 3], 10, 3);    // -quantize-> [2, 2, 3, 4, 5, 6, 7, 8, 9]
-    let result = matrix1.inverse(); 
-    result.print();     // ["0x0d","0x04","0x0d","0x04","0x0d","0x0a","0x0d","0x0c","0x08"] -quantize-> [1.0, -2.0, 1.0, -2.0, 1.0, 0.0, 1.0, 0.6666666666666666, -0.6666666666666666]
-    assert(result.values==[13, 4, 13, 4, 13, 10, 13, 12, 8]);
+    let matrix1 = Matrix::new_quantized([999900, 1000200, 1000300, 1000400, 1000500, 999400], [2, 3], 1000000, 100);    // -quantize-> [-1, 2, 3, 4, 5, -6]
+    let matrix2 = Matrix::new_quantized([1000700, 1000800, 1000900, 1001000, 1001100, 998800], [3, 2], 1000000, 100);    // -quantize-> [7, 8, 9, 10, 11, -12]
+    let mut result = matrix1.mul(matrix2);  
+    result.print();     // ["0x0f5370","0x0f38e0","0x0f44fc","0x0f7e68"] -quantize-> [44, -24, 7, 154]
+    assert(result.values==[1004400, 997600, 1000700, 1015400]);
 }
 
 #[test]
@@ -403,8 +442,7 @@ fn test_mul() {
     let matrix2 = [7, 8, 9, 10, 11, 12];
     let matrix1_shape = [2,3];
     let matrix2_shape = [3,2];
-    let mut result = [0; 4];
-    result = mul(matrix1, matrix2, matrix1_shape, matrix2_shape, result);
+    let mut result = mul(matrix1, matrix2, matrix1_shape, matrix2_shape);
     println(result);    //  [58, 64, 139, 154] ['0x3a', '0x40', '0x8b', '0x9a']
 }
 
@@ -412,8 +450,7 @@ fn test_mul() {
 fn test_mul1() {
     let matrix1 = Matrix::new_quantized([999900, 1000200, 1000300, 1000400, 1000500, 999400], [2, 3], 1000000, 100);    // -quantize-> [-1, 2, 3, 4, 5, -6]
     let matrix2 = Matrix::new_quantized([1000700, 1000800, 1000900, 1001000, 1001100, 998800], [3, 2], 1000000, 100);    // -quantize-> [7, 8, 9, 10, 11, -12]
-    let mut result = Matrix::new_quantized([0; 4], [2, 2], 1000000, 100);
-    result = matrix1.mul(matrix2, result);  
+    let mut result = matrix1.mul(matrix2);  
     result.print();     // ["0x0f5370","0x0f38e0","0x0f44fc","0x0f7e68"] -quantize-> [44, -24, 7, 154]
     assert(result.values==[1004400, 997600, 1000700, 1015400]);
 }
