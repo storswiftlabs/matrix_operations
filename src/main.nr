@@ -71,7 +71,7 @@ impl<N> Matrix<N> {
         }
     }
 
-    fn mul<M>(self, matrix: Self) -> Matrix<M>{
+    fn mul<M, P>(self, matrix: Matrix<P>) -> Matrix<M>{
         let mut result =  Matrix {values: [0; M], shape: [self.shape[0], matrix.shape[1]], zero_point: self.zero_point, scale: self.scale};
         if (self.zero_point==0) & (self.scale==1) & (matrix.zero_point==0) & (matrix.scale==1) {
             result.values = mul(self.values, matrix.values, self.shape, matrix.shape);
@@ -252,7 +252,7 @@ fn hadamard_product<M>(matrix1: [Field; M], matrix2: [Field; M]) -> [Field; M]{
     result
 }
 
-fn mul<M, N>(matrix1: [Field; M], matrix2: [Field; M], matrix1_shape: [comptime Field; 2], matrix2_shape: [comptime Field; 2]) -> [Field; N]{
+fn mul<M, N, P>(matrix1: [Field; M], matrix2: [Field; P], matrix1_shape: [comptime Field; 2], matrix2_shape: [comptime Field; 2]) -> [Field; N]{
     // Ensure that the number of columns in the first matrix matches the number of rows in the second matrix
     assert(matrix1_shape[1] == matrix2_shape[0]);
     assert(N == matrix1_shape[0]*matrix2_shape[1]);
